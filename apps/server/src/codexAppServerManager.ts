@@ -216,6 +216,7 @@ export interface CodexThreadSnapshot {
   cwd?: string | null;
 }
 
+// Cap how long we wait on `codex --version` before giving up at startup.
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
