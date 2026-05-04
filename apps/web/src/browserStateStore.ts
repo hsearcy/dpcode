@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 const BROWSER_STATE_STORAGE_KEY = "dpcode:browser-state:v1";
+// Cap stored browser history per thread to keep localStorage payloads small.
 const BROWSER_HISTORY_LIMIT = 12;
 const EMPTY_BROWSER_HISTORY: BrowserHistoryEntry[] = [];
 
