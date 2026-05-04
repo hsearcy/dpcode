@@ -1,5 +1,6 @@
 import path from "node:path";
 
+// HTTP route prefix used to serve attachment files.
 export const ATTACHMENTS_ROUTE_PREFIX = "/attachments";
 
 export function normalizeAttachmentRelativePath(rawRelativePath: string): string | null {

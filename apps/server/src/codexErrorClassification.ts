@@ -2,6 +2,7 @@
 // Purpose: Centralizes Codex runtime error classification shared across manager and adapter layers.
 // Exports: helpers for non-fatal Codex error messages that should remain warnings
 
+// Substrings of Codex error messages we treat as warnings rather than fatal failures.
 const NON_FATAL_CODEX_ERROR_SNIPPETS = [
   "write_stdin failed: stdin is closed for this session",
 ] as const;
