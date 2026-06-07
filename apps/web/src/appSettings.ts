@@ -1,3 +1,4 @@
+// App settings hooks and provider start option helpers.
 import { useCallback, useEffect, useRef } from "react";
 import { Option, Schema } from "effect";
 import { TrimmedNonEmptyString, ProviderKind, type ProviderStartOptions } from "@t3tools/contracts";
