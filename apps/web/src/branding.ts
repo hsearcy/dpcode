@@ -1,3 +1,4 @@
+// Centralized app branding constants (name, stage label, version).
 // Base product name shown across the UI.
 export const APP_BASE_NAME = "HS Code";
 export const APP_STAGE_LABEL = import.meta.env.DEV ? "Dev" : "Alpha";
