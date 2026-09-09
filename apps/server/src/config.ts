@@ -9,6 +9,7 @@
 import { Effect, FileSystem, Layer, Path, ServiceMap } from "effect";
 import OS from "node:os";
 
+// Default port the server listens on when none is supplied.
 export const DEFAULT_PORT = 3773;
 
 export type RuntimeMode = "web" | "desktop";

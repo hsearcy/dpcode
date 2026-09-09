@@ -1,5 +1,6 @@
 import Mime from "@effect/platform-node/Mime";
 
+// Preferred file extension to use for each known image MIME type.
 export const IMAGE_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   "image/avif": ".avif",
   "image/bmp": ".bmp",
