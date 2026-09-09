@@ -1,3 +1,4 @@
+// Distance (px) from the bottom within which we still treat the user as "at the bottom".
 export const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
 
 interface ScrollPosition {
