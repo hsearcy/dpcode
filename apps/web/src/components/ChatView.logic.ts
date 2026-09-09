@@ -39,6 +39,7 @@ export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.
 export const TERMINAL_CLI_THREAD_OPTIONS = [
   { cliKind: "claude", label: "Claude Code" },
   { cliKind: "codex", label: "Codex" },
+  { cliKind: "grok", label: "Grok" },
 ] as const satisfies ReadonlyArray<{ cliKind: TerminalCliKind; label: string }>;
 
 export type NewTerminalCliThreadKind = (typeof TERMINAL_CLI_THREAD_OPTIONS)[number]["cliKind"];

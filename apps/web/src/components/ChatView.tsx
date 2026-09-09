@@ -7393,6 +7393,7 @@ export default function ChatView({
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThreadDisplayTitle}
           activeThreadEntryPoint={terminalState.entryPoint}
+          activeThreadCliKind={activeThread.cliKind ?? null}
           activeProvider={activeThread.modelSelection.provider}
           activeProjectName={activeProjectDisplayName}
           threadBreadcrumbs={threadBreadcrumbs}

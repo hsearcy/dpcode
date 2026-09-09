@@ -1,3 +1,4 @@
+import type { CommandViewSnapshot } from "./commandView";
 import type {
   GitCheckoutInput,
   GitActionProgressEvent,
@@ -373,6 +374,7 @@ export interface NativeApi {
     ) => Promise<T | null>;
   };
   server: {
+    getCommandView: () => Promise<CommandViewSnapshot>;
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerRefreshProvidersResult>;
     listWorktrees: () => Promise<ServerListWorktreesResult>;

@@ -15,4 +15,9 @@ describe("resolveChatHeaderThreadIconKind", () => {
   it("keeps provider branding for chat-first threads", () => {
     expect(resolveChatHeaderThreadIconKind("chat")).toBe("provider");
   });
+
+  it("uses CLI branding when a terminal CLI kind is present", () => {
+    expect(resolveChatHeaderThreadIconKind("chat", "grok")).toBe("cli");
+    expect(resolveChatHeaderThreadIconKind("terminal", "codex")).toBe("cli");
+  });
 });

@@ -1,6 +1,7 @@
 export * from "./baseSchemas";
 export * from "./ipc";
 export * from "./terminal";
+export * from "./commandView";
 export * from "./provider";
 export * from "./providerDiscovery";
 export * from "./providerRuntime";

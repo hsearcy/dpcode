@@ -100,7 +100,20 @@ _t3code_extract_event() {
   printf '%s' "$_t3code_hook_input" | sed -n "s/.*\\\"$1\\\"[[:space:]]*:[[:space:]]*\\\"\\([^\\\"]*\\)\\\".*/\\1/p" | head -n 1
 }
 
+# Outside an HS Code terminal the managed Grok plugin may still load (it lives
+# under ~/.grok/plugins). Consume stdin, then no-op so we never write OSC into
+# a foreign TUI.
+if [ -z "\${T3CODE_TERMINAL_EVENT_SINK:-}" ] && [ -z "\${T3CODE_TERMINAL_CLI_KIND:-}" ] && [ -z "\${T3CODE_TERMINAL_TTY:-}" ]; then
+  exit 0
+fi
+
 _t3code_event="$(_t3code_extract_event hook_event_name)"
+if [ -z "$_t3code_event" ]; then
+  _t3code_event="$(_t3code_extract_event hookEventName)"
+fi
+if [ -z "$_t3code_event" ]; then
+  _t3code_event="\${GROK_HOOK_EVENT:-}"
+fi
 if [ -z "$_t3code_event" ]; then
   _t3code_type="$(_t3code_extract_event type)"
   case "$_t3code_type" in
@@ -114,6 +127,25 @@ if [ -z "$_t3code_event" ]; then
       _t3code_event="PermissionRequest"
       ;;
   esac
+fi
+
+case "$_t3code_event" in
+  user_prompt_submit|UserPromptSubmit) _t3code_event="UserPromptSubmit" ;;
+  session_start|SessionStart) _t3code_event="SessionStart" ;;
+  post_tool_use|PostToolUse) _t3code_event="PostToolUse" ;;
+  post_tool_use_failure|PostToolUseFailure) _t3code_event="PostToolUseFailure" ;;
+  stop|Stop|stop_failure|StopFailure|stop_cancelled|StopCancelled|session_end|SessionEnd)
+    _t3code_event="Stop"
+    ;;
+  notification|Notification) _t3code_event="Notification" ;;
+esac
+
+_t3code_subagent="$(_t3code_extract_event subagentType)"
+if [ -z "$_t3code_subagent" ]; then
+  _t3code_subagent="$(_t3code_extract_event subagent_type)"
+fi
+if [ -n "$_t3code_subagent" ] && [ "$_t3code_subagent" != "null" ]; then
+  exit 0
 fi
 
 # Codex fires notify for EVERY thread completing inside the process —
@@ -231,6 +263,27 @@ _t3code_emit_codex_turn_meta() {
   _t3code_emit_cli_meta_payload "codex" "$_t3code_codex_thread_id" "" "$(_t3code_extract_event cwd)"
 }
 
+_t3code_emit_grok_meta() {
+  _t3code_session_id="$(_t3code_extract_event sessionId)"
+  if [ -z "$_t3code_session_id" ] && [ "\${T3CODE_TERMINAL_CLI_KIND:-}" = "grok" ]; then
+    _t3code_session_id="\${GROK_SESSION_ID:-}"
+    if [ -z "$_t3code_session_id" ]; then
+      _t3code_session_id="$(_t3code_extract_event session_id)"
+    fi
+  fi
+  if [ -z "$_t3code_session_id" ]; then
+    return
+  fi
+  _t3code_cwd="$(_t3code_extract_event cwd)"
+  if [ -z "$_t3code_cwd" ]; then
+    _t3code_cwd="$(_t3code_extract_event workspaceRoot)"
+  fi
+  if [ -z "$_t3code_cwd" ] && [ "\${T3CODE_TERMINAL_CLI_KIND:-}" = "grok" ]; then
+    _t3code_cwd="\${GROK_WORKSPACE_ROOT:-}"
+  fi
+  _t3code_emit_cli_meta_payload "grok" "$_t3code_session_id" "" "$_t3code_cwd"
+}
+
 case "$_t3code_event" in
   UserPromptSubmit)
     _t3code_emit_osc '${buildHookOscSequence("Start")}'
@@ -238,18 +291,22 @@ case "$_t3code_event" in
     # a Stop hook. Re-read on every user prompt so the next message after a rename
     # flushes the fresh summary up to the sidebar.
     _t3code_emit_claude_meta
+    _t3code_emit_grok_meta
     ;;
   PostToolUse|PostToolUseFailure|Start)
     _t3code_emit_osc '${buildHookOscSequence("Start")}'
+    _t3code_emit_grok_meta
     ;;
   Stop)
     _t3code_emit_osc '${buildHookOscSequence("Stop")}'
     _t3code_emit_claude_meta
     _t3code_emit_codex_turn_meta
+    _t3code_emit_grok_meta
     ;;
   SessionStart)
     _t3code_emit_osc '${buildHookOscSequence("Start")}'
     _t3code_emit_claude_meta
+    _t3code_emit_grok_meta
     ;;
   PermissionRequest|PreToolUse)
     _t3code_emit_osc '${buildHookOscSequence("PermissionRequest")}'
@@ -257,14 +314,26 @@ case "$_t3code_event" in
   Notification)
     # Claude fires Notification for more than permission prompts: 60s after a
     # turn ends it sends "Claude is waiting for your input" even though Stop
-    # already parked the session in review. Forwarding that as an attention
-    # signal bounces every idle thread review -> attention. Drop idle pings;
-    # anything else (permission / approval requests) still pages attention.
-    case "$(_t3code_extract_event message)" in
-      *[Ww]aiting*for*input*)
+    # already parked the session in review. Grok's idle_prompt is the same
+    # class of ping. Drop idle pings; permission prompts still page attention.
+    _t3code_notification_type="$(_t3code_extract_event notificationType)"
+    if [ -z "$_t3code_notification_type" ]; then
+      _t3code_notification_type="$(_t3code_extract_event notification_type)"
+    fi
+    case "$_t3code_notification_type" in
+      permission_prompt)
+        _t3code_emit_osc '${buildHookOscSequence("PermissionRequest")}'
+        ;;
+      idle_prompt)
         ;;
       *)
-        _t3code_emit_osc '${buildHookOscSequence("PermissionRequest")}'
+        case "$(_t3code_extract_event message)" in
+          *[Ww]aiting*for*input*)
+            ;;
+          *)
+            _t3code_emit_osc '${buildHookOscSequence("PermissionRequest")}'
+            ;;
+        esac
         ;;
     esac
     ;;
@@ -300,6 +369,53 @@ function buildClaudeSettingsJson(notifyHookPath: string): string {
     null,
     2,
   );
+}
+
+function writeGrokPlugin(pluginDir: string, notifyHookPath: string): void {
+  fs.mkdirSync(path.join(pluginDir, "hooks"), { recursive: true });
+  writeFileIfChanged(
+    path.join(pluginDir, "plugin.json"),
+    `${JSON.stringify(
+      {
+        name: "hscode-terminal",
+        description: "HS Code terminal activity hooks for Grok",
+      },
+      null,
+      2,
+    )}\n`,
+    0o644,
+  );
+  const hook = { type: "command", command: notifyHookPath, timeout: 5 };
+  writeFileIfChanged(
+    path.join(pluginDir, "hooks", "hooks.json"),
+    `${JSON.stringify(
+      {
+        hooks: {
+          SessionStart: [{ hooks: [hook] }],
+          UserPromptSubmit: [{ hooks: [hook] }],
+          PostToolUse: [{ hooks: [hook] }],
+          Stop: [{ hooks: [hook] }],
+          StopFailure: [{ hooks: [hook] }],
+          StopCancelled: [{ hooks: [hook] }],
+          Notification: [{ matcher: "permission_prompt", hooks: [hook] }],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    0o644,
+  );
+}
+
+function buildGrokWrapperScript(input: { pluginDir: string; targetPath: string }): string {
+  return [
+    '_t3code_grok_home="${GROK_HOME:-${HOME:+$HOME/.grok}}"',
+    'if [ -n "$_t3code_grok_home" ]; then',
+    '  mkdir -p "$_t3code_grok_home/plugins"',
+    `  ln -sfn ${shellQuote(input.pluginDir)} "$_t3code_grok_home/plugins/hscode-terminal"`,
+    "fi",
+    `exec ${shellQuote(input.targetPath)} "$@"`,
+  ].join("\n");
 }
 
 function buildCodexWrapperScript(input: { notifyHookPath: string; targetPath: string }): string {
@@ -467,15 +583,18 @@ function buildCodexWrapperScript(input: { notifyHookPath: string; targetPath: st
 function buildWrapperScript(input: {
   claudeSettingsPath: string;
   cliKind: TerminalCliKind;
+  grokPluginDir: string;
   notifyHookPath: string;
   targetPath: string;
 }): string {
-  const { claudeSettingsPath, cliKind, notifyHookPath, targetPath } = input;
+  const { claudeSettingsPath, cliKind, grokPluginDir, notifyHookPath, targetPath } = input;
   const commandName = managedTerminalCommandNameForCliKind(cliKind);
   const title = defaultTerminalTitleForCliKind(cliKind);
   const commandBody = isClaudeTerminalCliKind(cliKind)
     ? `exec ${shellQuote(targetPath)} --settings ${shellQuote(claudeSettingsPath)} "$@"`
-    : buildCodexWrapperScript({ notifyHookPath, targetPath });
+    : cliKind === "codex"
+      ? buildCodexWrapperScript({ notifyHookPath, targetPath })
+      : buildGrokWrapperScript({ pluginDir: grokPluginDir, targetPath });
   return [
     "#!/bin/sh",
     `# Managed ${commandName} wrapper injected by t3code terminal sessions.`,
@@ -535,6 +654,14 @@ if [ -n "\${T3CODE_MANAGED_BIN_DIR:-}" ] && [ -d "\${T3CODE_MANAGED_BIN_DIR}" ];
       command codex "$@"
     fi
   }
+  unalias grok 2>/dev/null || true
+  grok() {
+    if [ -x "\${T3CODE_MANAGED_BIN_DIR}/grok" ] && [ ! -d "\${T3CODE_MANAGED_BIN_DIR}/grok" ]; then
+      "\${T3CODE_MANAGED_BIN_DIR}/grok" "$@"
+    else
+      command grok "$@"
+    fi
+  }
   typeset -ga precmd_functions 2>/dev/null || true
   _t3code_ensure_managed_bin() {
     case ":$PATH:" in
@@ -592,7 +719,7 @@ export function prepareManagedTerminalWrappers(options: {
 
   const targetPathByCliKind: Partial<Record<TerminalCliKind, string>> = {};
   // Claudex stays a user shell alias so it can expand to the managed Claude wrapper.
-  for (const cliKind of ["codex", "claude"] as const) {
+  for (const cliKind of ["codex", "claude", "grok"] as const) {
     const commandName = managedTerminalCommandNameForCliKind(cliKind);
     const targetPath = resolveExecutableOnPath(commandName, options.baseEnv);
     if (!targetPath) {
@@ -614,8 +741,10 @@ export function prepareManagedTerminalWrappers(options: {
   fs.mkdirSync(options.rootDir, { recursive: true });
   const hookScriptPath = path.join(options.rootDir, "notify-hook.sh");
   const claudeSettingsPath = path.join(options.rootDir, "claude-settings.json");
+  const grokPluginDir = path.join(options.rootDir, "grok-plugin");
   writeFileIfChanged(hookScriptPath, buildNotifyHookScript(), 0o755);
   writeFileIfChanged(claudeSettingsPath, buildClaudeSettingsJson(hookScriptPath), 0o644);
+  writeGrokPlugin(grokPluginDir, hookScriptPath);
   for (const [cliKind, targetPath] of Object.entries(targetPathByCliKind) as Array<
     [TerminalCliKind, string]
   >) {
@@ -625,6 +754,7 @@ export function prepareManagedTerminalWrappers(options: {
       buildWrapperScript({
         claudeSettingsPath,
         cliKind,
+        grokPluginDir,
         notifyHookPath: hookScriptPath,
         targetPath,
       }),

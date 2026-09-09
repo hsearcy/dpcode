@@ -9,8 +9,10 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type ResolvedKeybindingsConfig,
+  type TerminalCliKind,
   type ThreadId,
 } from "@t3tools/contracts";
+import { defaultTerminalTitleForCliKind } from "@t3tools/shared/terminalThreads";
 import { useQuery } from "@tanstack/react-query";
 import React, { memo, useEffect, useRef, useState } from "react";
 import { BsLayoutSplit, BsTerminal } from "react-icons/bs";
@@ -35,6 +37,7 @@ import { resolveEditorIcon } from "../../editorMetadata";
 import { usePreferredEditor } from "../../editorPreferences";
 import { useIsDisposableThread } from "~/hooks/useIsDisposableThread";
 import { ClaudeAI, Gemini, OpenAI, OpenCodeIcon } from "../Icons";
+import { ThreadCliIdentityIcon } from "../terminal/TerminalIdentityIcon";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 
 /** Width (px) below which collapsible header controls fold into the ellipsis menu. */
@@ -44,6 +47,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeThreadEntryPoint: ThreadPrimarySurface;
+  activeThreadCliKind?: TerminalCliKind | null;
   activeProvider: ProviderKind;
   activeProjectName: string | undefined;
   threadBreadcrumbs: ReadonlyArray<{
@@ -96,11 +100,15 @@ interface ChatHeaderProps {
   onRenameThread: () => void;
 }
 
-export type ChatHeaderThreadIconKind = "provider" | "terminal";
+export type ChatHeaderThreadIconKind = "provider" | "terminal" | "cli";
 
 export function resolveChatHeaderThreadIconKind(
   entryPoint: ThreadPrimarySurface,
+  cliKind?: TerminalCliKind | null,
 ): ChatHeaderThreadIconKind {
+  if (cliKind) {
+    return "cli";
+  }
   return entryPoint === "terminal" ? "terminal" : "provider";
 }
 
@@ -108,6 +116,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   activeThreadEntryPoint,
+  activeThreadCliKind = null,
   activeProvider,
   activeProjectName,
   threadBreadcrumbs,
@@ -166,7 +175,10 @@ export const ChatHeader = memo(function ChatHeader({
   const isSplitPane = surfaceMode === "split";
   const inlineChatLayoutAction = chatLayoutAction?.kind === "maximize" ? chatLayoutAction : null;
   const menuChatLayoutAction = inlineChatLayoutAction ? null : chatLayoutAction;
-  const threadIconKind = resolveChatHeaderThreadIconKind(activeThreadEntryPoint);
+  const threadIconKind = resolveChatHeaderThreadIconKind(
+    activeThreadEntryPoint,
+    activeThreadCliKind,
+  );
 
   useEffect(() => {
     const el = headerRef.current;
@@ -228,12 +240,16 @@ export const ChatHeader = memo(function ChatHeader({
               <span
                 className="inline-flex size-3.5 shrink-0 items-center justify-center"
                 title={
-                  threadIconKind === "terminal"
-                    ? "Terminal"
-                    : PROVIDER_DISPLAY_NAMES[activeProvider]
+                  threadIconKind === "cli" && activeThreadCliKind
+                    ? defaultTerminalTitleForCliKind(activeThreadCliKind)
+                    : threadIconKind === "terminal"
+                      ? "Terminal"
+                      : PROVIDER_DISPLAY_NAMES[activeProvider]
                 }
               >
-                {threadIconKind === "terminal" ? (
+                {threadIconKind === "cli" ? (
+                  <ThreadCliIdentityIcon cliKind={activeThreadCliKind} className="size-3.5" />
+                ) : threadIconKind === "terminal" ? (
                   <TerminalIcon className="size-3.5 text-teal-600/85" />
                 ) : (
                   renderProviderIcon(activeProvider, "size-3.5")

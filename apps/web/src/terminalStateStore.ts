@@ -115,7 +115,10 @@ function normalizeTerminalCliKinds(
     .filter(
       ([terminalId, cliKind]) =>
         terminalId.length > 0 &&
-        (cliKind === "codex" || cliKind === "claude" || cliKind === "claudex"),
+        (cliKind === "codex" ||
+          cliKind === "claude" ||
+          cliKind === "claudex" ||
+          cliKind === "grok"),
     )
     .filter(([terminalId]) => validTerminalIdSet.has(terminalId))
     .toSorted(([leftId], [rightId]) => leftId.localeCompare(rightId));
@@ -172,6 +175,7 @@ function generatedTerminalTitleBase(cliKind: TerminalCliKind | null): string {
   if (cliKind === "codex") return "Codex";
   if (cliKind === "claude") return "Claude";
   if (cliKind === "claudex") return "Claudex";
+  if (cliKind === "grok") return "Grok";
   return "Terminal";
 }
 

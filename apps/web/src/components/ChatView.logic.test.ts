@@ -21,13 +21,15 @@ import {
 } from "./ChatView.logic";
 
 describe("terminal CLI thread options", () => {
-  it("offers Claude Code and Codex as the new-thread options", () => {
+  it("offers Claude Code, Codex, and Grok as the new-thread options", () => {
     expect(TERMINAL_CLI_THREAD_OPTIONS).toEqual([
       { cliKind: "claude", label: "Claude Code" },
       { cliKind: "codex", label: "Codex" },
+      { cliKind: "grok", label: "Grok" },
     ]);
     expect(terminalCliThreadLabel("claude")).toBe("Claude Code");
     expect(terminalCliThreadLabel("codex")).toBe("Codex");
+    expect(terminalCliThreadLabel("grok")).toBe("Grok");
   });
 });
 

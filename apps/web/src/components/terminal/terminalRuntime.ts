@@ -36,6 +36,7 @@ import {
   terminalThemeFromApp,
   writeSystemMessage,
 } from "./terminalRuntimeAppearance";
+import { createTerminalExternalLinkHandler } from "./terminalExternalLinks";
 import { terminalEventDispatcher } from "./terminalEventDispatcher";
 import type {
   TerminalRuntimeConfig,
@@ -605,7 +606,16 @@ export function createRuntimeEntry(config: TerminalRuntimeConfig): TerminalRunti
   const imageAddon = new ImageAddon();
   const searchAddon = new SearchAddon();
   const unicode11Addon = new Unicode11Addon();
+  const externalLinkHandler = createTerminalExternalLinkHandler(
+    async (url) => {
+      const api = readNativeApi();
+      if (!api) throw new Error("Unable to open link: application is not connected");
+      await api.shell.openExternal(url);
+    },
+    (message) => writeSystemMessage(terminal, message),
+  );
   const terminal = new Terminal({
+    linkHandler: externalLinkHandler,
     cursorBlink: true,
     fontSize: 12,
     fontWeight: 700,
@@ -837,12 +847,7 @@ export function createRuntimeEntry(config: TerminalRuntimeConfig): TerminalRunti
               if (!api) return;
 
               if (match.kind === "url") {
-                void api.shell.openExternal(match.text).catch((error) => {
-                  writeSystemMessage(
-                    terminal,
-                    error instanceof Error ? error.message : "Unable to open link",
-                  );
-                });
+                externalLinkHandler.activate(event, match.text);
                 return;
               }
 

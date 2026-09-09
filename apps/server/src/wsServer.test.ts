@@ -626,6 +626,7 @@ describe("WebSocket Server", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("sends welcome message on connect", async () => {
@@ -2657,6 +2658,17 @@ describe("WebSocket Server", () => {
   });
 
   it("resumes Codex by persisted id and falls back to the picker for legacy placeholders", async () => {
+    const codexHome = makeTempDir("t3code-ws-codex-home-");
+    vi.stubEnv("CODEX_HOME", codexHome);
+    const sessionDir = path.join(codexHome, "sessions", "2026", "09", "08");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, "rollout-019f4c9e-f110-7d32-b2b7-f6c0b77def2c.jsonl"),
+      `${JSON.stringify({
+        type: "session_meta",
+        payload: { id: "019f4c9e-f110-7d32-b2b7-f6c0b77def2c", source: "cli" },
+      })}\n`,
+    );
     const terminalManager = new MockTerminalManager();
     server = await createTestServer({ cwd: "/test", terminalManager });
     const addr = server.address();
@@ -2823,6 +2835,181 @@ describe("WebSocket Server", () => {
       "claudex --session-id 550e8400-e29b-41d4-a716-446655440000\r",
       "claudex --resume 550e8400-e29b-41d4-a716-446655440000\r",
     ]);
+  });
+
+  it("reads Command summaries without opening or writing to terminals", async () => {
+    const terminalManager = new MockTerminalManager();
+    const open = vi.spyOn(terminalManager, "open");
+    server = await createTestServer({ cwd: "/test", terminalManager });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+    const createdAt = new Date().toISOString();
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create", commandId: "cmd-command-project", projectId: "command-project",
+      title: "Command Project", workspaceRoot: makeTempDir("hscode-command-"),
+      defaultModelSelection: { provider: "codex", model: "gpt-5-codex" }, createdAt,
+    });
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "thread.create", commandId: "cmd-command-thread", threadId: "command-thread",
+      projectId: "command-project", title: "Saved thread",
+      modelSelection: { provider: "codex", model: "gpt-5-codex" }, runtimeMode: "full-access",
+      interactionMode: "terminal-cli", branch: null, worktreePath: null, cliKind: "claude", createdAt,
+    });
+    const result = await sendRequest(ws, WS_METHODS.serverGetCommandView, {});
+    expect(result.result).toMatchObject({ threads: [expect.objectContaining({
+      id: "command-thread", title: "Saved thread", status: "idle", response: null,
+    })], totalThreads: 1 });
+    expect(open).not.toHaveBeenCalled();
+    expect(terminalManager.writeInputs).toEqual([]);
+  });
+
+  it("launches and resumes Grok threads with session-id flags", async () => {
+    const terminalManager = new MockTerminalManager();
+    server = await createTestServer({ cwd: "/test", terminalManager });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const workspaceRoot = makeTempDir("t3code-ws-grok-");
+    const createdAt = new Date().toISOString();
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: "cmd-grok-project-create",
+      projectId: "project-grok",
+      title: "Grok Project",
+      workspaceRoot,
+      defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+      createdAt,
+    });
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "thread.create",
+      commandId: "cmd-grok-thread-create",
+      threadId: "thread-grok",
+      projectId: "project-grok",
+      title: "Grok — Project",
+      modelSelection: { provider: "codex", model: "gpt-5-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "terminal-cli",
+      branch: null,
+      worktreePath: null,
+      cliKind: "grok",
+      cliSessionId: "550e8400-e29b-41d4-a716-446655440000",
+      createdAt,
+    });
+
+    const openInput = {
+      threadId: "thread-grok",
+      cwd: workspaceRoot,
+      cols: 100,
+      rows: 24,
+    };
+    await sendRequest(ws, WS_METHODS.terminalOpen, openInput);
+    await sendRequest(ws, WS_METHODS.terminalClose, {
+      threadId: "thread-grok",
+      deleteHistory: true,
+    });
+    await sendRequest(ws, WS_METHODS.terminalOpen, openInput);
+
+    expect(terminalManager.writeInputs.map((input) => input.data)).toEqual([
+      "grok --session-id 550e8400-e29b-41d4-a716-446655440000\r",
+      "grok --resume 550e8400-e29b-41d4-a716-446655440000\r",
+    ]);
+  });
+
+  it("recovers a renamed Codex session before resume and follows names while idle", async () => {
+    const codexHome = makeTempDir("t3code-ws-codex-index-");
+    vi.stubEnv("CODEX_HOME", codexHome);
+    const sessionId = "01a01759-0b3f-7a91-9425-d45d8ea76bc1";
+    const staleId = "01a08235-ef27-7bd1-a799-cbd81c892e17";
+    const sessionDir = path.join(codexHome, "sessions", "2026", "09", "08");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, `rollout-${sessionId}.jsonl`),
+      `${JSON.stringify({ type: "session_meta", payload: { id: sessionId, source: "cli" } })}\n`,
+    );
+    const appendTitle = (title: string) =>
+      fs.appendFileSync(
+        path.join(codexHome, "session_index.jsonl"),
+        `${JSON.stringify({ id: sessionId, thread_name: title })}\n`,
+      );
+    appendTitle("pipeline_refactor");
+    const terminalManager = new MockTerminalManager();
+    server = await createTestServer({ cwd: "/test", terminalManager });
+    const addr = server.address();
+    const [ws] = await connectAndAwaitWelcome(typeof addr === "object" && addr ? addr.port : 0);
+    connections.push(ws);
+    const workspaceRoot = makeTempDir("t3code-ws-codex-recovery-");
+    const createdAt = new Date().toISOString();
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "project.create",
+      commandId: "recovery-project",
+      projectId: "recovery-project",
+      title: "Recovery",
+      workspaceRoot,
+      createdAt,
+    });
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "thread.create",
+      commandId: "recovery-thread",
+      threadId: "recovery-thread",
+      projectId: "recovery-project",
+      title: "pipeline_refactor",
+      modelSelection: { provider: "codex", model: "gpt-5-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "terminal-cli",
+      branch: null,
+      worktreePath: null,
+      cliKind: "codex",
+      cliSessionId: staleId,
+      createdAt,
+    });
+    const openInput = { threadId: "recovery-thread", cwd: workspaceRoot, cols: 100, rows: 24 };
+    await sendRequest(ws, WS_METHODS.terminalOpen, openInput);
+    await sendRequest(ws, WS_METHODS.terminalClose, {
+      threadId: "recovery-thread",
+      deleteHistory: true,
+    });
+    const response = await sendRequest(ws, WS_METHODS.terminalOpen, openInput);
+    expect(response.error).toBeUndefined();
+    expect(terminalManager.writeInputs.at(-1)?.data).toBe(`codex resume ${sessionId}\r`);
+
+    const getThread = async () => {
+      const snapshot = await sendRequest(ws, ORCHESTRATION_WS_METHODS.getSnapshot);
+      return (
+        snapshot.result as {
+          threads: Array<{ id: string; title: string; cliSessionId: string }>;
+        }
+      ).threads.find((thread) => thread.id === "recovery-thread");
+    };
+    expect((await getThread())?.cliSessionId).toBe(sessionId);
+    appendTitle('New "Codex" title');
+    await vi.waitFor(
+      async () => expect((await getThread())?.title).toBe('New "Codex" title'),
+      { timeout: 5000 },
+    );
+    terminalManager.emitEvent({
+      type: "cli-session",
+      threadId: "recovery-thread",
+      terminalId: DEFAULT_TERMINAL_ID,
+      createdAt,
+      cliKind: "codex",
+      sessionId: staleId,
+      summary: null,
+      cwd: workspaceRoot,
+    });
+    await sendRequest(ws, ORCHESTRATION_WS_METHODS.dispatchCommand, {
+      type: "thread.meta.update",
+      commandId: "recovery-manual-title",
+      threadId: "recovery-thread",
+      title: "My title",
+    });
+    appendTitle("Another Codex title");
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    expect(await getThread()).toMatchObject({ title: "My title", cliSessionId: sessionId });
   });
 
   it("tracks Codex-managed titles without overwriting a manual HS Code title", async () => {

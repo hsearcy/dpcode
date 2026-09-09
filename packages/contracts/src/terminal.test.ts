@@ -236,4 +236,18 @@ describe("TerminalEvent", () => {
       }),
     ).toBe(true);
   });
+
+  it("accepts Grok activity events", () => {
+    expect(
+      decodes(TerminalEvent, {
+        type: "activity",
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        createdAt: new Date().toISOString(),
+        hasRunningSubprocess: true,
+        cliKind: "grok",
+        agentState: "running",
+      }),
+    ).toBe(true);
+  });
 });

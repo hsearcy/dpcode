@@ -10,6 +10,7 @@ import http from "node:http";
 import { realpathSync } from "node:fs";
 import type { Duplex } from "node:stream";
 
+import { resolveCodexHome } from "@t3tools/shared/codexConfig";
 import {
   getSessionInfo as getClaudeSessionInfo,
   getSessionMessages as getClaudeSessionMessages,
@@ -54,6 +55,7 @@ import {
   Ref,
   Result,
   Schema,
+  Schedule,
   Scope,
   ServiceMap,
   Stream,
@@ -64,6 +66,8 @@ import { execFileSync } from "node:child_process";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { createLogger } from "./logger";
+import { CommandViewReader } from "./commandView";
+import { CodexSessionMetadataReader } from "./terminal/codexSessionMetadata";
 import {
   checkpointRefForThreadTurn,
   checkpointRefForThreadTurnStart,
@@ -120,8 +124,9 @@ import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracke
 import {
   defaultTerminalTitleForCliKind,
   isGenericTerminalThreadTitle,
-  isClaudeTerminalCliKind,
+  managedLaunchCommandNameForCliKind,
   terminalCliKindsShareProvider,
+  usesSessionIdLaunch,
   type TerminalCliKind,
 } from "@t3tools/shared/terminalThreads";
 import { ProjectionThreadRepository } from "./persistence/Services/ProjectionThreads.ts";
@@ -1473,7 +1478,13 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const runPromise = Effect.runPromiseWith(runtimeServices);
 
   const CLI_SUMMARY_TITLE_MAX = 48;
+  const truncateCliSummary = (summary: string) =>
+    summary.length > CLI_SUMMARY_TITLE_MAX
+      ? `${summary.slice(0, CLI_SUMMARY_TITLE_MAX - 1).trimEnd()}…`
+      : summary;
   const cliManagedTitleByThreadId = new Map<string, { cliKind: TerminalCliKind; title: string }>();
+  const codexSessionMetadata = new CodexSessionMetadataReader(resolveCodexHome());
+  const commandViewReader = new CommandViewReader();
   const isAutoDerivedTerminalTitle = (
     title: string | null | undefined,
     cliKind: TerminalCliKind,
@@ -1503,29 +1514,45 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     sessionId: string | null;
     summary: string | null;
   }) {
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const thread = readModel.threads.find((entry) => entry.id === input.threadId);
-    if (!thread) {
+    const initialReadModel = yield* orchestrationEngine.getReadModel();
+    const initialThread = initialReadModel.threads.find((entry) => entry.id === input.threadId);
+    if (!initialThread) {
       return;
     }
     const effectiveCliKind =
-      thread.cliKind === "claudex" && input.cliKind === "claude" ? "claudex" : input.cliKind;
-    // Codex reports cwd without a stable session id; only adopt an id when one
-    // is actually present so we never clobber Claude's `--resume` token.
-    const nextSessionId = input.sessionId;
+      initialThread.cliKind === "claudex" && input.cliKind === "claude" ? "claudex" : input.cliKind;
+    const codexMetadata =
+      effectiveCliKind === "codex"
+        ? yield* Effect.promise(async () =>
+            (input.sessionId ? await codexSessionMetadata.resolve(input.sessionId) : null) ??
+            (await codexSessionMetadata.resolve(initialThread.cliSessionId, initialThread.title)),
+          )
+        : null;
+    // File reads can overlap a manual title change. Use the current projection
+    // before deciding whether Codex still owns the title.
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const thread = readModel.threads.find((entry) => entry.id === input.threadId);
+    if (!thread) return;
+    if (effectiveCliKind === "codex" && thread.cliSessionId !== initialThread.cliSessionId) return;
+    // Never persist a Codex notify ID unless it belongs to a saved root rollout.
+    // Reviewer completions can otherwise replace the resume ID with an internal ID.
+    const nextSessionId =
+      effectiveCliKind === "codex" ? (codexMetadata?.sessionId ?? null) : input.sessionId;
     const sessionIdChanged = nextSessionId !== null && thread.cliSessionId !== nextSessionId;
-    const trimmedSummary = input.summary?.trim() ?? "";
-    const truncatedSummary =
-      trimmedSummary.length > CLI_SUMMARY_TITLE_MAX
-        ? `${trimmedSummary.slice(0, CLI_SUMMARY_TITLE_MAX - 1).trimEnd()}…`
-        : trimmedSummary;
+    const trimmedSummary = (input.summary ?? codexMetadata?.title)?.trim() ?? "";
+    const truncatedSummary = truncateCliSummary(trimmedSummary);
     const lastManagedTitle = cliManagedTitleByThreadId.get(input.threadId);
     const providerOwnsCurrentTitle =
       lastManagedTitle?.cliKind === effectiveCliKind && lastManagedTitle.title === thread.title;
     const shouldUpdateTitle =
       truncatedSummary.length > 0 &&
       truncatedSummary !== thread.title &&
-      (providerOwnsCurrentTitle || isAutoDerivedTerminalTitle(thread.title, effectiveCliKind));
+      (providerOwnsCurrentTitle ||
+        (codexMetadata &&
+          [...codexMetadata.previousTitles].some(
+            (title) => truncateCliSummary(title) === thread.title,
+          )) ||
+        isAutoDerivedTerminalTitle(thread.title, effectiveCliKind));
     if (truncatedSummary.length > 0 && (shouldUpdateTitle || truncatedSummary === thread.title)) {
       cliManagedTitleByThreadId.set(input.threadId, {
         cliKind: effectiveCliKind,
@@ -1853,6 +1880,31 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     }
   });
   yield* Effect.addFinalizer(() => Effect.sync(() => unsubscribeCliSessionEvents()));
+  // Current Codex TUI logs contain event names without title payloads. Read
+  // the local name index even while idle so /rename needs no subsequent turn.
+  // The reader caches unchanged index contents; this loop never overlaps itself.
+  yield* Effect.gen(function* () {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    for (const thread of readModel.threads) {
+      if (
+        thread.cliKind !== "codex" ||
+        (thread.archivedAt ?? null) !== null ||
+        thread.deletedAt !== null
+      ) {
+        continue;
+      }
+      yield* applyCliSessionMeta({
+        threadId: thread.id,
+        cliKind: "codex",
+        sessionId: null,
+        summary: null,
+      });
+    }
+  }).pipe(
+    Effect.catchCause(() => Effect.void),
+    Effect.repeat(Schedule.spaced("2 seconds")),
+    Effect.forkIn(subscriptionsScope),
+  );
   yield* readiness.markTerminalSubscriptionsReady;
 
   yield* Effect.addFinalizer(() =>
@@ -2500,7 +2552,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             return;
           }
           const cliKind = thread.cliKind;
-          const cliSessionId = thread.cliSessionId;
+          let cliSessionId = thread.cliSessionId;
           if (!cliKind) {
             return;
           }
@@ -2512,6 +2564,20 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           }
           const row = threadRow.value;
           const launched = row.cliLaunchedOnce;
+          if (cliKind === "codex" && launched) {
+            const metadata = yield* Effect.promise(() =>
+              codexSessionMetadata.resolve(cliSessionId, thread.title),
+            );
+            cliSessionId = metadata?.sessionId ?? null;
+            if (metadata && metadata.sessionId !== thread.cliSessionId) {
+              yield* orchestrationEngine.dispatch({
+                type: "thread.meta.update",
+                commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+                threadId: thread.id,
+                cliSessionId: metadata.sessionId,
+              });
+            }
+          }
           // Defense in depth: if the PTY already has the matching CLI live
           // (managed-agent mid-turn or a detected subprocess matching this
           // thread's CLI), don't auto-type a resume command. With the
@@ -2532,8 +2598,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             return;
           }
           let initialCommand: string;
-          if (isClaudeTerminalCliKind(cliKind)) {
-            const command = cliKind === "claudex" ? "claudex" : "claude";
+          if (usesSessionIdLaunch(cliKind)) {
+            const command = managedLaunchCommandNameForCliKind(cliKind);
             initialCommand = launched
               ? `${command} --resume ${cliSessionId}`
               : `${command} --session-id ${cliSessionId}`;
@@ -2599,6 +2665,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return yield* terminalManager.close(body);
       }
 
+      case WS_METHODS.serverGetCommandView: {
+        const model = yield* orchestrationEngine.getReadModel();
+        return yield* Effect.promise(() => commandViewReader.read(model, (threadId) =>
+          runPromise(terminalManager.getSessionActivity(threadId, DEFAULT_TERMINAL_ID)),
+        ));
+      }
       case WS_METHODS.serverGetConfig:
         const keybindingsConfig = yield* keybindingsManager.loadConfigState;
         const providerStatuses = yield* providerHealth.getStatuses;

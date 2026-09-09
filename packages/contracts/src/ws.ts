@@ -130,6 +130,7 @@ export const WS_METHODS = {
 
   // Server meta
   serverGetConfig: "server.getConfig",
+  serverGetCommandView: "server.getCommandView",
   serverRefreshProviders: "server.refreshProviders",
   serverListWorktrees: "server.listWorktrees",
   serverGetProviderUsageSnapshot: "server.getProviderUsageSnapshot",
@@ -232,6 +233,7 @@ const WebSocketRequestBody = Schema.Union([
 
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverGetCommandView, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverListWorktrees, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetProviderUsageSnapshot, ServerGetProviderUsageSnapshotInput),

@@ -113,6 +113,7 @@ import { quotePosixShellArgument } from "../lib/shellQuote";
 import { DEFAULT_THREAD_TERMINAL_ID, type SidebarThreadSummary, type Thread } from "../types";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { ClaudeAI, Gemini, OpenAI, OpenCodeIcon } from "./Icons";
+import { ThreadCliIdentityIcon } from "./terminal/TerminalIdentityIcon";
 import { AppNavigationButtons } from "./AppNavigationButtons";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { ThreadPinToggleButton } from "./ThreadPinToggleButton";
@@ -377,24 +378,9 @@ function WorktreeBadgeGlyph({ className }: { className?: string }) {
 }
 
 function TerminalCliGlyph({ cliKind }: { cliKind: TerminalCliKind | null }) {
-  const containerClass = "relative inline-flex size-3.5 shrink-0 items-center justify-center";
-  if (cliKind === "claude" || cliKind === "claudex") {
-    return (
-      <span className={containerClass}>
-        <ClaudeAI aria-hidden="true" className="size-3.5 text-foreground opacity-80" />
-      </span>
-    );
-  }
-  if (cliKind === "codex") {
-    return (
-      <span className={containerClass}>
-        <OpenAI aria-hidden="true" className="size-3.5 text-muted-foreground/60" />
-      </span>
-    );
-  }
   return (
-    <span className={containerClass}>
-      <TerminalIcon aria-hidden="true" className="size-3.5 text-teal-600/85" />
+    <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
+      <ThreadCliIdentityIcon cliKind={cliKind} className="size-3.5" />
     </span>
   );
 }
@@ -1034,27 +1020,28 @@ function SidebarSegmentedPicker({
   activeView,
   onSelectView,
 }: {
-  activeView: "threads" | "workspace";
-  onSelectView: (view: "threads" | "workspace") => void;
+  activeView: "threads" | "workspace" | "command";
+  onSelectView: (view: "threads" | "workspace" | "command") => void;
 }) {
   return (
     <div className="px-3 pb-2.5">
       <div className="inline-flex w-full rounded-md bg-[var(--color-background-elevated-secondary)] p-0.5">
-        {(["threads", "workspace"] as const).map((view) => {
+        {(["threads", "workspace", "command"] as const).map((view) => {
           const active = activeView === view;
           return (
             <button
               key={view}
               type="button"
               className={cn(
-                "flex-1 rounded-sm px-2.5 py-1 text-[11.5px] font-medium tracking-tight transition-colors",
+                "min-w-0 flex-1 rounded-sm px-1 py-1 text-[11px] font-medium tracking-tight transition-colors",
                 active
                   ? "bg-[var(--composer-surface)] text-[var(--color-text-foreground)] shadow-xs"
                   : "text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
               )}
               onClick={() => onSelectView(view)}
+              aria-pressed={active}
             >
-              {view === "threads" ? "Threads" : "Workspace"}
+              {view === "threads" ? "Threads" : view === "workspace" ? "Workspace" : "Command"}
             </button>
           );
         })}
@@ -1140,6 +1127,7 @@ export default function Sidebar() {
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = useLocation({ select: (loc) => loc.pathname === "/settings" });
   const isOnWorkspace = pathname.startsWith("/workspace");
+  const isOnCommand = pathname === "/command";
   const { settings: appSettings, updateSettings } = useAppSettings();
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
@@ -1740,7 +1728,11 @@ export default function Sidebar() {
   );
 
   const handleSidebarViewChange = useCallback(
-    (view: "threads" | "workspace") => {
+    (view: "threads" | "workspace" | "command") => {
+      if (view === "command") {
+        void navigate({ to: "/command" });
+        return;
+      }
       if (view === "workspace") {
         const restoredWorkspaceId =
           lastVisitedWorkspaceId &&
@@ -3961,10 +3953,10 @@ export default function Sidebar() {
               <ThreadRunningSpinner presentation="inline" />
             ) : null}
           </div>
-          {threadEntryPoint === "terminal" ? (
-            <TerminalIcon aria-hidden="true" className="size-3.5 shrink-0 text-teal-600/85" />
-          ) : thread.interactionMode === "terminal-cli" ? (
+          {thread.cliKind || thread.interactionMode === "terminal-cli" ? (
             <TerminalCliGlyph cliKind={thread.cliKind ?? null} />
+          ) : threadEntryPoint === "terminal" ? (
+            <TerminalIcon aria-hidden="true" className="size-3.5 shrink-0 text-teal-600/85" />
           ) : (
             <ProviderAvatarWithTerminal
               provider={thread.modelSelection.provider}
@@ -4235,10 +4227,10 @@ export default function Sidebar() {
                 style={{ backgroundColor: subagentPresentation?.accentColor }}
               />
             </span>
+          ) : thread.cliKind || thread.interactionMode === "terminal-cli" ? (
+            <TerminalCliGlyph cliKind={thread.cliKind ?? null} />
           ) : threadEntryPoint === "terminal" ? (
             <TerminalIcon aria-hidden="true" className="size-3.5 shrink-0 text-teal-600/85" />
-          ) : thread.interactionMode === "terminal-cli" ? (
-            <TerminalCliGlyph cliKind={thread.cliKind ?? null} />
           ) : (
             <ProviderAvatarWithTerminal
               provider={thread.modelSelection.provider}
@@ -5232,6 +5224,16 @@ export default function Sidebar() {
         </SidebarHeader>
       )}
 
+      {!isOnSettings ? (
+        <SidebarHeader className="shrink-0 gap-0 p-0 font-system-ui">
+          {isElectron ? sidebarBrand : null}
+          <SidebarSegmentedPicker
+            activeView={isOnCommand ? "command" : isOnWorkspace ? "workspace" : "threads"}
+            onSelectView={handleSidebarViewChange}
+          />
+        </SidebarHeader>
+      ) : null}
+
       <SidebarContent className="gap-0 font-system-ui">
         {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
           <SidebarGroup className="px-2 pt-2 pb-0">
@@ -5331,11 +5333,6 @@ export default function Sidebar() {
           </SidebarGroup>
         ) : (
           <>
-            {isElectron ? sidebarBrand : null}
-            <SidebarSegmentedPicker
-              activeView={isOnWorkspace ? "workspace" : "threads"}
-              onSelectView={handleSidebarViewChange}
-            />
             {/* Primary sidebar actions stay limited to features we currently ship. */}
             <SidebarGroup className="px-1.5 pt-1 pb-1.5">
               <SidebarMenu className="gap-0.5">

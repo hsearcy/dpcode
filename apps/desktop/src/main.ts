@@ -63,6 +63,7 @@ import {
 } from "./githubUpdateFeed";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { DesktopBrowserManager } from "./browserManager";
+import { isRunningOnWSL as detectWSL, openExternal } from "./openExternal";
 import { BROWSER_IPC_CHANNELS, registerBrowserIpcHandlers, sendBrowserState } from "./browserIpc";
 import {
   BrowserUsePipeServer,
@@ -107,15 +108,7 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const isRunningOnWSL = (() => {
-  if (process.platform !== "linux") return false;
-  if (process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP) return true;
-  try {
-    return /microsoft|wsl/i.test(FS.readFileSync("/proc/version", "utf8"));
-  } catch {
-    return false;
-  }
-})();
+const isRunningOnWSL = detectWSL();
 const APP_DISPLAY_NAME = isDevelopment ? "HS Code (Dev)" : "HS Code (Alpha)";
 const APP_USER_MODEL_ID = isDevelopment ? "com.t3tools.dpcode.dev" : "com.t3tools.dpcode";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
@@ -1713,7 +1706,7 @@ function registerIpcHandlers(): void {
     }
 
     try {
-      await shell.openExternal(externalUrl);
+      await openExternal(externalUrl);
       return true;
     } catch {
       return false;
@@ -1987,7 +1980,9 @@ function createWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler(({ url }) => {
     const externalUrl = getSafeExternalUrl(url);
     if (externalUrl) {
-      void shell.openExternal(externalUrl);
+      void openExternal(externalUrl).catch((error) => {
+        console.error("[desktop] failed to open external link", error);
+      });
     }
     return { action: "deny" };
   });

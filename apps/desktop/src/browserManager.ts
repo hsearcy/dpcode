@@ -9,7 +9,6 @@ import {
   BrowserWindow,
   clipboard,
   nativeImage,
-  shell,
   webContents as electronWebContents,
   WebContentsView,
 } from "electron";
@@ -29,6 +28,8 @@ import type {
   ThreadBrowserState,
   ThreadId,
 } from "@t3tools/contracts";
+
+import { openExternal } from "./openExternal";
 
 const ABOUT_BLANK_URL = "about:blank";
 const BROWSER_SESSION_PARTITION = "persist:dpcode-browser";
@@ -1242,7 +1243,9 @@ export class DesktopBrowserManager {
         return { action: "deny" };
       }
 
-      void shell.openExternal(url);
+      void openExternal(url).catch((error) => {
+        console.error("[desktop] failed to open external link", error);
+      });
       return { action: "deny" };
     });
 

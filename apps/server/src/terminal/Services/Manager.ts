@@ -26,6 +26,8 @@ import {
  */
 export interface TerminalSessionActivity {
   status: TerminalSessionStatus;
+  agentState?: TerminalActivityState | null;
+  lastActivityAt?: string;
   hasRunningSubprocess: boolean;
   detectedCliKind: TerminalCliKind | null;
   managedAgentRunning: boolean;

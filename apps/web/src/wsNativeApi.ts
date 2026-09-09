@@ -405,6 +405,7 @@ export function createWsNativeApi(): NativeApi {
       },
     },
     server: {
+      getCommandView: () => transport.request(WS_METHODS.serverGetCommandView),
       getConfig: () => transport.request(WS_METHODS.serverGetConfig),
       refreshProviders: () => transport.request(WS_METHODS.serverRefreshProviders),
       listWorktrees: () => transport.request(WS_METHODS.serverListWorktrees),

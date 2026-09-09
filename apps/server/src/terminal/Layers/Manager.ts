@@ -106,7 +106,7 @@ const EVENT_SINK_POLL_INTERVAL_MS = 250;
  * returns 300-600 MB to the machine. Override with
  * DPCODE_TERMINAL_IDLE_SLEEP_MS; 0 disables sleeping entirely.
  */
-const DEFAULT_TERMINAL_IDLE_SLEEP_MS = 30 * 60 * 1000;
+const DEFAULT_TERMINAL_IDLE_SLEEP_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_IDLE_SLEEP_CHECK_INTERVAL_MS = 60_000;
 
 function idleSleepMsFromEnv(): number {
@@ -1526,6 +1526,8 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     detectedCliKind: TerminalCliKind | null;
     managedAgentRunning: boolean;
     managedAgentObserved: boolean;
+    agentState: TerminalActivityState | null;
+    lastActivityAt: string;
   } | null {
     const session = this.sessions.get(toSessionKey(threadId, terminalId));
     if (!session) return null;
@@ -1535,6 +1537,8 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
       detectedCliKind: session.detectedCliKind,
       managedAgentRunning: session.managedAgentRunning,
       managedAgentObserved: session.managedAgentObserved,
+      agentState: session.managedAgentState,
+      lastActivityAt: new Date(Math.max(session.lastInputAt ?? 0, session.lastOutputAt ?? 0, session.spawnedAt ?? 0) || Date.parse(session.updatedAt)).toISOString(),
     };
   }
 

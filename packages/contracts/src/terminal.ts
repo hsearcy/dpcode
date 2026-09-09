@@ -175,7 +175,12 @@ const TerminalActivityEvent = Schema.Struct({
   // edge is still real. Optional so older peers keep decoding.
   turnCompletionCount: Schema.optional(Schema.Int),
   cliKind: Schema.NullOr(
-    Schema.Union([Schema.Literal("codex"), Schema.Literal("claude"), Schema.Literal("claudex")]),
+    Schema.Union([
+      Schema.Literal("codex"),
+      Schema.Literal("claude"),
+      Schema.Literal("claudex"),
+      Schema.Literal("grok"),
+    ]),
   ),
   agentState: Schema.NullOr(
     Schema.Union([
@@ -197,6 +202,7 @@ const TerminalCliSessionEvent = Schema.Struct({
     Schema.Literal("codex"),
     Schema.Literal("claude"),
     Schema.Literal("claudex"),
+    Schema.Literal("grok"),
   ]),
   sessionId: Schema.NullOr(Schema.String.check(Schema.isNonEmpty())),
   summary: Schema.NullOr(Schema.String),

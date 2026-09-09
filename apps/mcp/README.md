@@ -1,6 +1,6 @@
 # @t3tools/mcp
 
-An MCP server (`hscode-mcp`) that exposes HS Code threads (Claude / Codex
+An MCP server (`hscode-mcp`) that exposes HS Code threads (Claude / Codex / Grok
 terminal sessions) as tools for a supervising agent. It lets one agent monitor
 and drive every HS Code thread you have open.
 
@@ -21,7 +21,7 @@ and drive every HS Code thread you have open.
 | `send_input({thread, text, submit?})`                                                   | Type prompt text, clear Codex paste-burst state, then send Enter separately by default.                             |
 | `submit_input({thread})`                                                                | Clear Codex paste-burst state and send Enter when a draft is already present in the CLI composer.                   |
 | `wait_for_attention({thread, timeoutSeconds?, permissionPromptOnly?})`                  | Block until the CLI is idle (turn complete or approval prompt).                                                     |
-| `start_thread({project, provider, title?, openTerminal?})`                              | Create a new Claude / Codex CLI thread in a project (equivalent to "New Thread → Claude Code / Codex" in the app).  |
+| `start_thread({project, provider, title?, openTerminal?})`                              | Create a new Claude / Codex / Grok CLI thread in a project (equivalent to "New Thread → Claude Code / Codex / Grok" in the app). |
 | `notify_on_idle({thread, notifyUrl, timeoutSeconds?, permissionPromptOnly?, headers?})` | Register a webhook fired once when the thread next goes idle. Non-blocking — caller returns immediately.            |
 | `subscribe_threads({notifyUrl, states?, screenScope?, minIntervalMs?, headers?})`       | Register a webhook called on every thread's idle transitions across the whole desktop. Throttled and screen-scoped. |
 | `unsubscribe_threads({subscriptionId?})`                                                | Remove a `subscribe_threads` subscription; omit id to clear all.                                                    |

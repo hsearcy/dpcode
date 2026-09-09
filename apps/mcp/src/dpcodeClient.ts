@@ -274,7 +274,7 @@ export interface TerminalActivity {
   threadId: string;
   terminalId: string;
   hasRunningSubprocess: boolean;
-  cliKind: "claude" | "claudex" | "codex" | null;
+  cliKind: "claude" | "claudex" | "codex" | "grok" | null;
   agentState: TerminalAgentState;
   updatedAt: string;
 }

@@ -298,6 +298,54 @@ describe("managed terminal wrappers", () => {
       const meta = JSON.parse(Buffer.from(encoded!, "base64").toString("utf8"));
       expect(meta).toMatchObject({ cliKind: "claude", sessionId: "claude-session-1" });
     });
+
+    it("maps Grok camelCase UserPromptSubmit to Start and forwards session meta", () => {
+      const sink = runNotifyHook({
+        hookEventName: "user_prompt_submit",
+        sessionId: "grok-session-1",
+        cwd: "/home/user/repo",
+      });
+      expect(sink).toContain(HOOK_OSC("Start"));
+      const metaLine = sink.split("\n").find((line) => line.includes("T3CODE_CLI_META="));
+      const encoded = /T3CODE_CLI_META=([A-Za-z0-9+/=]+)/.exec(metaLine!)?.[1];
+      const meta = JSON.parse(Buffer.from(encoded!, "base64").toString("utf8"));
+      expect(meta).toMatchObject({
+        cliKind: "grok",
+        sessionId: "grok-session-1",
+        cwd: "/home/user/repo",
+      });
+    });
+
+    it("maps Grok stop events to Stop and ignores subagent stops", () => {
+      const sink = runNotifyHook({
+        hookEventName: "stop",
+        sessionId: "grok-session-1",
+        cwd: "/home/user/repo",
+      });
+      expect(sink).toContain(HOOK_OSC("Stop"));
+
+      const subagentSink = runNotifyHook({
+        hookEventName: "stop",
+        sessionId: "grok-subagent-1",
+        subagentType: "explore",
+        cwd: "/home/user/repo",
+      });
+      expect(subagentSink).toBe("");
+    });
+
+    it("pages Grok permission_prompt notifications and drops idle_prompt", () => {
+      const permissionSink = runNotifyHook({
+        hookEventName: "notification",
+        notificationType: "permission_prompt",
+      });
+      expect(permissionSink).toContain(HOOK_OSC("PermissionRequest"));
+
+      const idleSink = runNotifyHook({
+        hookEventName: "notification",
+        notificationType: "idle_prompt",
+      });
+      expect(idleSink).not.toContain("T3CODE_AGENT_EVENT=");
+    });
   });
 
   it("emits Start for submitted turns in the current Codex TUI log format", () => {
@@ -397,5 +445,42 @@ describe("managed terminal wrappers", () => {
     );
     expect(wrapper).toContain(`awk -F'thread_id: ThreadId { uuid: '`);
     expect(wrapper).toContain('_t3code_emit_session_id "$_t3code_new_session_id"');
+  });
+
+  it("wraps grok as a passthrough managed command", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "hscode-grok-wrapper-"));
+    tempDirs.push(tempDir);
+    const sourceBinDir = path.join(tempDir, "source-bin");
+    const wrapperDir = path.join(tempDir, "wrappers");
+    const grokHome = path.join(tempDir, "grok-home");
+    fs.mkdirSync(sourceBinDir);
+    fs.writeFileSync(
+      path.join(sourceBinDir, "grok"),
+      '#!/bin/sh\nprintf "grok-ok %s" "$*"\n',
+      { mode: 0o755 },
+    );
+
+    const state = prepareManagedTerminalWrappers({
+      baseEnv: { PATH: sourceBinDir },
+      rootDir: wrapperDir,
+      zshRootDir: path.join(tempDir, "zsh"),
+    });
+
+    expect(state.targetPathByCliKind.grok).toBe(path.join(sourceBinDir, "grok"));
+    const wrapper = fs.readFileSync(path.join(wrapperDir, "grok"), "utf8");
+    expect(wrapper).toContain("T3CODE_TERMINAL_CLI_KIND='grok'");
+    expect(wrapper).toContain("plugins/hscode-terminal");
+    expect(wrapper).not.toContain("--settings");
+    expect(wrapper).not.toContain("--enable hooks");
+    expect(fs.existsSync(path.join(wrapperDir, "grok-plugin", "hooks", "hooks.json"))).toBe(true);
+
+    const output = execFileSync(path.join(wrapperDir, "grok"), ["--resume", "abc"], {
+      encoding: "utf8",
+      env: { ...process.env, GROK_HOME: grokHome, HOME: tempDir },
+    });
+    expect(output).toContain("grok-ok --resume abc");
+    expect(fs.lstatSync(path.join(grokHome, "plugins", "hscode-terminal")).isSymbolicLink()).toBe(
+      true,
+    );
   });
 });

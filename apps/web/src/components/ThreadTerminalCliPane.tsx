@@ -28,9 +28,11 @@ const TERMINAL_ID = "default";
 
 interface ThreadTerminalCliPaneProps {
   threadId: ThreadId;
+  cwd?: string;
+  cliKind?: TerminalCliKind | null;
 }
 
-export default function ThreadTerminalCliPane({ threadId }: ThreadTerminalCliPaneProps) {
+export default function ThreadTerminalCliPane({ threadId, cwd: cwdOverride, cliKind: cliKindOverride }: ThreadTerminalCliPaneProps) {
   const selectThread = useMemo(() => createThreadSelector(threadId), [threadId]);
   const thread = useStore(selectThread);
   const selectProject = useMemo(
@@ -38,8 +40,8 @@ export default function ThreadTerminalCliPane({ threadId }: ThreadTerminalCliPan
     [thread?.projectId],
   );
   const project = useStore(selectProject);
-  const cwd = project?.cwd ?? "";
-  const cliKind: TerminalCliKind | null = thread?.cliKind ?? null;
+  const cwd = cwdOverride ?? thread?.worktreePath ?? project?.cwd ?? "";
+  const cliKind: TerminalCliKind | null = cliKindOverride ?? thread?.cliKind ?? null;
   const terminalLabel = cliKind ? defaultTerminalTitleForCliKind(cliKind) : "Terminal";
 
   const containerRef = useRef<HTMLDivElement>(null);

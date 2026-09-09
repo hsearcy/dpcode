@@ -1067,7 +1067,7 @@ function registerTools(server: McpServer): void {
     "start_thread",
     {
       description:
-        "Create a new HS Code terminal thread that launches a Claude Code or Codex CLI session in the target project — equivalent to the desktop app's \"New Thread → Claude Code / Codex\" button. The thread is created in terminal-cli mode with the project's local workspace; the CLI starts as soon as the terminal is opened. Returns the new threadId so you can immediately drive it with `send_input` / `read_thread` / `wait_for_attention`.",
+        "Create a new HS Code terminal thread that launches a Claude Code, Codex, or Grok CLI session in the target project — equivalent to the desktop app's \"New Thread → Claude Code / Codex / Grok\" button. The thread is created in terminal-cli mode with the project's local workspace; the CLI starts as soon as the terminal is opened. Returns the new threadId so you can immediately drive it with `send_input` / `read_thread` / `wait_for_attention`.",
       inputSchema: {
         project: z
           .string()
@@ -1075,13 +1075,15 @@ function registerTools(server: McpServer): void {
             "Project to start the thread in. Matches against project title or workspace path (substring).",
           ),
         provider: z
-          .enum(["claude", "codex"])
-          .describe('Which CLI to launch. "claude" runs Claude Code, "codex" runs Codex.'),
+          .enum(["claude", "codex", "grok"])
+          .describe(
+            'Which CLI to launch. "claude" runs Claude Code, "codex" runs Codex, "grok" runs Grok.',
+          ),
         title: z
           .string()
           .optional()
           .describe(
-            'Optional thread title. Defaults to "Claude Code — <project>" or "Codex — <project>".',
+            'Optional thread title. Defaults to "Claude Code — <project>", "Codex — <project>", or "Grok — <project>".',
           ),
         openTerminal: z
           .boolean()
@@ -1093,15 +1095,16 @@ function registerTools(server: McpServer): void {
     },
     async (args: {
       project: string;
-      provider: "claude" | "codex";
+      provider: "claude" | "codex" | "grok";
       title?: string;
       openTerminal?: boolean;
     }) => {
       const project = resolveProject(args.project);
-      const cliKind = args.provider; // "claude" | "codex" — matches TerminalCliKind in contracts
+      const cliKind = args.provider;
       const providerKind = cliKind === "claude" ? "claudeAgent" : "codex";
       const model = DEFAULT_MODEL_BY_PROVIDER[providerKind];
-      const cliLabel = cliKind === "claude" ? "Claude Code" : "Codex";
+      const cliLabel =
+        cliKind === "claude" ? "Claude Code" : cliKind === "grok" ? "Grok" : "Codex";
       const title = args.title?.trim() || `${cliLabel} — ${project.title}`;
       const threadId = randomUUID();
       const createdAt = new Date().toISOString();
@@ -1164,7 +1167,7 @@ function registerTools(server: McpServer): void {
     "list_projects",
     {
       description:
-        "List the projects registered in HS Code (the workspaces you can start threads in). Use this FIRST to check whether a repo is already registered before cloning or registering it — match on `workspaceRoot` (the absolute local path) or `title`. Returns each project's projectId, title, and workspaceRoot, plus `providers` (which CLIs — claude/codex — are installed on this machine) and `projectsRoot` (the default directory new repos are cloned into).",
+        "List the projects registered in HS Code (the workspaces you can start threads in). Use this FIRST to check whether a repo is already registered before cloning or registering it — match on `workspaceRoot` (the absolute local path) or `title`. Returns each project's projectId, title, and workspaceRoot, plus `providers` (which CLIs — claude/codex/grok — are installed on this machine) and `projectsRoot` (the default directory new repos are cloned into).",
       inputSchema: {
         query: z
           .string()
@@ -1175,9 +1178,10 @@ function registerTools(server: McpServer): void {
     },
     async (args: { query?: string; limit?: number }) => {
       const projects = db.listProjects({ query: args.query, limit: args.limit });
-      const [claudeOk, codexOk] = await Promise.all([
+      const [claudeOk, codexOk, grokOk] = await Promise.all([
         commandAvailable("claude"),
         commandAvailable("codex"),
+        commandAvailable("grok"),
       ]);
       return {
         content: [
@@ -1186,7 +1190,7 @@ function registerTools(server: McpServer): void {
             text: JSON.stringify(
               {
                 projects,
-                providers: { claude: claudeOk, codex: codexOk },
+                providers: { claude: claudeOk, codex: codexOk, grok: grokOk },
                 projectsRoot: projectsRoot(),
               },
               null,
